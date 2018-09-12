@@ -2,7 +2,8 @@ Django Channels
 ===============
 
 Channels is a project that takes Django and extends its abilities beyond
-HTTP - to handle WebSockets, chat protocols, IoT protocols, and more.
+HTTP - to handle WebSockets, chat protocols, IoT protocols, and more. It's
+built on a Python specification called `ASGI <http://asgi.readthedocs.io>`_.
 
 It does this by taking the core of Django and layering a fully asynchronous
 layer underneath, running Django itself in a synchronous mode but handling
@@ -60,7 +61,6 @@ Topics
    topics/worker
    deploying
    one-to-two
-   javascript
 
 
 Reference
@@ -73,4 +73,5 @@ Reference
    channel_layer_spec
    community
    contributing
+   support
    releases/index

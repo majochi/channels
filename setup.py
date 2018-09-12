@@ -18,7 +18,7 @@ setup(
     ],
     extras_require={
         'tests': [
-            'pytest~=3.6',
+            'pytest~=3.6.0',
             "pytest-django~=3.1",
             "pytest-asyncio~=0.8",
             "async_generator~=1.8",
@@ -37,6 +37,7 @@ setup(
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
         'Topic :: Internet :: WWW/HTTP',
     ],
 )

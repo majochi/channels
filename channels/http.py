@@ -35,14 +35,22 @@ class AsgiRequest(http.HttpRequest):
         self._post_parse_error = False
         self._read_started = False
         self.resolver_match = None
-        # Path info
-        self.path = self.scope["path"]
         self.script_name = self.scope.get("root_path", "")
-        if self.script_name and self.path.startswith(self.script_name):
+        if self.script_name and scope["path"].startswith(self.script_name):
             # TODO: Better is-prefix checking, slash handling?
-            self.path_info = self.path[len(self.script_name):]
+            self.path_info = scope["path"][len(self.script_name) :]
         else:
-            self.path_info = self.path
+            self.path_info = scope["path"]
+
+        # django path is different from asgi scope path args, it should combine with script name
+        if self.script_name:
+            self.path = "%s/%s" % (
+                self.script_name.rstrip("/"),
+                self.path_info.replace("/", "", 1),
+            )
+        else:
+            self.path = scope["path"]
+
         # HTTP basics
         self.method = self.scope["method"].upper()
         # fix https://github.com/django/channels/issues/622
@@ -71,8 +79,7 @@ class AsgiRequest(http.HttpRequest):
         # Handle old style-headers for a transition period
         if "headers" in self.scope and isinstance(self.scope["headers"], dict):
             self.scope["headers"] = [
-                (x.encode("latin1"), y) for x, y in
-                self.scope["headers"].items()
+                (x.encode("latin1"), y) for x, y in self.scope["headers"].items()
             ]
         # Headers go into META
         for name, value in self.scope.get("headers", []):
@@ -90,7 +97,9 @@ class AsgiRequest(http.HttpRequest):
             self.META[corrected_name] = value
         # Pull out request encoding if we find it
         if "CONTENT_TYPE" in self.META:
-            self.content_type, self.content_params = cgi.parse_header(self.META["CONTENT_TYPE"])
+            self.content_type, self.content_params = cgi.parse_header(
+                self.META["CONTENT_TYPE"]
+            )
             if "charset" in self.content_params:
                 try:
                     codecs.lookup(self.content_params["charset"])
@@ -164,7 +173,10 @@ class AsgiHandler(base.BaseHandler):
 
     def __init__(self, scope):
         if scope["type"] != "http":
-            raise ValueError("The AsgiHandler can only handle HTTP connections, not %s" % scope["type"])
+            raise ValueError(
+                "The AsgiHandler can only handle HTTP connections, not %s"
+                % scope["type"]
+            )
         super(AsgiHandler, self).__init__()
         self.scope = scope
         self.load_middleware()
@@ -208,9 +220,7 @@ class AsgiHandler(base.BaseHandler):
             logger.warning(
                 "Bad Request (UnicodeDecodeError)",
                 exc_info=sys.exc_info(),
-                extra={
-                    "status_code": 400,
-                }
+                extra={"status_code": 400},
             )
             response = http.HttpResponseBadRequest()
         except RequestTimeout:
@@ -237,12 +247,40 @@ class AsgiHandler(base.BaseHandler):
         # There's no WSGI server to catch the exception further up if this fails,
         # so translate it into a plain text response.
         try:
-            return super(AsgiHandler, self).handle_uncaught_exception(request, resolver, exc_info)
+            return super(AsgiHandler, self).handle_uncaught_exception(
+                request, resolver, exc_info
+            )
         except Exception:
             return HttpResponseServerError(
                 traceback.format_exc() if settings.DEBUG else "Internal Server Error",
                 content_type="text/plain",
             )
+
+    def load_middleware(self):
+        """
+        Loads the Django middleware chain and caches it on the class.
+        """
+        # Because we create an AsgiHandler on every HTTP request
+        # we need to preserve the Django middleware chain once we load it.
+        if (
+            hasattr(self.__class__, "_middleware_chain")
+            and self.__class__._middleware_chain
+        ):
+            self._middleware_chain = self.__class__._middleware_chain
+            self._view_middleware = self.__class__._view_middleware
+            self._template_response_middleware = (
+                self.__class__._template_response_middleware
+            )
+            self._exception_middleware = self.__class__._exception_middleware
+
+        else:
+            super(AsgiHandler, self).load_middleware()
+            self.__class__._middleware_chain = self._middleware_chain
+            self.__class__._view_middleware = self._view_middleware
+            self.__class__._template_response_middleware = (
+                self._template_response_middleware
+            )
+            self.__class__._exception_middleware = self._exception_middleware
 
     @classmethod
     def encode_response(cls, response):
@@ -258,18 +296,10 @@ class AsgiHandler(base.BaseHandler):
                 header = header.encode("ascii")
             if isinstance(value, str):
                 value = value.encode("latin1")
-            response_headers.append(
-                (
-                    bytes(header),
-                    bytes(value),
-                )
-            )
+            response_headers.append((bytes(header), bytes(value)))
         for c in response.cookies.values():
             response_headers.append(
-                (
-                    b"Set-Cookie",
-                    c.output(header="").encode("ascii"),
-                )
+                (b"Set-Cookie", c.output(header="").encode("ascii").strip())
             )
         # Make initial response message
         yield {
@@ -291,9 +321,7 @@ class AsgiHandler(base.BaseHandler):
                         "more_body": True,
                     }
             # Final closing message
-            yield {
-                "type": "http.response.body",
-            }
+            yield {"type": "http.response.body"}
         # Other responses just need chunking
         else:
             # Yield chunks of response
@@ -316,7 +344,7 @@ class AsgiHandler(base.BaseHandler):
             return
         while position < len(data):
             yield (
-                data[position:position + cls.chunk_size],
+                data[position : position + cls.chunk_size],
                 (position + cls.chunk_size) >= len(data),
             )
             position += cls.chunk_size

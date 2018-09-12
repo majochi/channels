@@ -138,3 +138,105 @@ You can also specify the port and IP that Daphne binds to::
 
 You can see more about Daphne and its options
 `on GitHub <https://github.com/django/daphne>`_.
+
+Alternative Web Servers
+-----------------------
+
+There are also alternative `ASGI <http://asgi.readthedocs.io>`_ servers
+that you can use for serving Channels.
+
+To some degree ASGI web servers should be interchangable, they should all have
+the same basic functionality in terms of serving HTTP and WebSocket requests.
+
+Aspects where servers may differ are in their configuration and defaults,
+performance characteristics, support for resource limiting, differing protocol
+and socket support, and approaches to process management.
+
+You can see more alternative servers, such as Uvicorn, in the
+`ASGI implementations documentation <https://asgi.readthedocs.io/en/latest/implementations.html#servers>`_.
+
+
+Example Setups
+--------------
+
+These are examples of possible setups - they are not guaranteed to work out of
+the box, and should be taken more as a guide than a direct tutorial.
+
+
+Nginx/Supervisor (Ubuntu)
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+This example sets up a Django site on an Ubuntu server, using Nginx as the
+main webserver and supervisord to run and manage Daphne. 
+
+First, install Nginx and Supervisor::
+
+    $ sudo apt install nginx supervisor
+
+Now, you will need to create the supervisor configuration file (often located in
+``/etc/supervisor/conf.d/`` - here, we're making Supervisor listen on the TCP
+port and then handing that socket off to the child processes so they can all
+share the same bound port::
+
+    [fcgi-program:asgi]
+    # TCP socket used by Nginx backend upstream
+    socket=tcp://localhost:8000
+
+    # Directory where your site's project files are located
+    directory=/my/app/path
+
+    # Each process needs to have a separate socket file, so we use process_num
+    # Make sure to update "mysite.asgi" to match your project name
+    command=daphne -u /run/daphne/daphne%(process_num)d.sock --fd 0 --access-log - --proxy-headers mysite.asgi:application
+
+    # Number of processes to startup, roughly the number of CPUs you have
+    numprocs=4
+
+    # Give each process a unique name so they can be told apart
+    process_name=asgi%(process_num)d
+
+    # Automatically start and recover processes
+    autostart=true
+    autorestart=true
+
+    # Choose where you want your log to go
+    stdout_logfile=/your/log/asgi.log
+    redirect_stderr=true
+
+Have supervisor reread and update its jobs::
+
+    $ sudo supervisorctl reread
+    $ sudo supervisorctl update
+
+Next, Nginx has to be told to proxy traffic to the running Daphne instances.
+Setup your nginx upstream conf file for your project::
+
+    upstream channels-backend {
+        server localhost:8000;
+    }
+    ...
+    server {
+        ...
+        location / {
+            try_files $uri @proxy_to_app;
+        }
+        ...
+        localtion @proxy_to_app {
+            proxy_pass http://channels-backend;
+
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+
+            proxy_redirect off;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Host $server_name;
+        }
+        ...
+    }
+
+Reload nginx to apply the changes::
+
+    $ sudo service nginx reload
