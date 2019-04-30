@@ -2,8 +2,8 @@ import json
 
 from asgiref.sync import async_to_sync
 
-from ..consumer import AsyncConsumer, SyncConsumer
-from ..exceptions import (
+from ...consumer import AsyncConsumer, SyncConsumer
+from ...exceptions import (
     AcceptConnection,
     DenyConnection,
     InvalidChannelLayerError,
