@@ -1,2 +1,3 @@
 recursive-exclude tests *
 include LICENSE
+include channels/static/channels/js/websocketbridge.js
